@@ -3,15 +3,25 @@
 
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 import time
 
 
-def potential(rho):
-	return rho*rho
 
+
+def potential_term(rho, part):
+	
+	if part == 'd':
+		return rho*rho
+		
+	elif part == 'e':
+		return wr*rho**2 + 1.0/rho
+
+	
 
 def create_matrix(N, mesh_min, mesh_max, part):
-
+		
+	
 	A = np.zeros((N, N))
 
 	h = (mesh_max - mesh_min)/float(N)
@@ -20,8 +30,8 @@ def create_matrix(N, mesh_min, mesh_max, part):
 
 	rho = np.linspace(mesh_min, mesh_max, N)
 	
-	V = np.array([potential(rho[i]) for i in range(N)])
-
+	
+	V = np.array([potential_term(rho[i], part) for i in range(N)])
 
 	if part == 'b':
 		a = -1.0/h2
@@ -35,7 +45,7 @@ def create_matrix(N, mesh_min, mesh_max, part):
 
 
 	elif part == 'd':
-		# Add potential to diagonal
+		# Add potential V(p)=p*p to diagonal
 
 		a = -1.0/h2
 		d = np.array([2.0/h2 + V[i] for i in range(N)]) 
@@ -48,26 +58,40 @@ def create_matrix(N, mesh_min, mesh_max, part):
 			A[i+1, i] = a
 		A[N-1, N-1] = d[N-1]
 
+	elif part == 'e':
+	
+		# Add potential V(p)= wr*rho**2 + 1.rho to diagonal
+
+		a = -1.0/h2
+		d = np.array([2.0/h2 + wr*V[i]**2 + 1.0/V[i] for i in range(N)]) 
+	
+
+		for i in range(N-1):
+
+			A[i,i] = d[i]
+			A[i, i+1] = a
+			A[i+1, i] = a
+		A[N-1, N-1] = d[N-1]
+
+
+
+	else:
+		import sys
+		print "part should be either 'b' or 'd'."
+		sys.exit()
 
 	
+
+	# Eigenvectors
 	R = np.eye(A.shape[0])
 
+
 	return A, R
-
-
-
-
-
-
-
-
-
 
 
 def jacobi_method(A, R):
 	
 	B = A.copy()
-
 	
 	# Find largest off-diagonal value
 	# Temporary variable
@@ -86,6 +110,7 @@ def jacobi_method(A, R):
 	# t=tan(theta), s=sin(theta), c=cos(theta)
 
 	tau = (A[l,l] - A[k,k])/(2.0*A[k,l])
+	#tau = (B[l,l] - B[k,k])/(2.0*B[k,l])
 
 	t_list = []
 	
@@ -99,10 +124,10 @@ def jacobi_method(A, R):
 	
 	# Perform jacobi rotation
 
-	B[k,l] = 0
-	B[l,k] = 0
+	B[k,l] = 0.0
+	B[l,k] = 0.0
 	
-	for i in range(A.shape[1]):
+	for i in range(A.shape[0]):
 		
 		if i != k and i != l:
 			
@@ -114,21 +139,26 @@ def jacobi_method(A, R):
 		
 	B[k,k] = A[k,k]*c**2 - 2*A[k,l]*c*s + A[l,l]*s**2
 	B[l,l] = A[l,l]*c**2 + 2*A[k,l]*c*s + A[k,k]*s**2
+	
 	#B[k,l] = (A[k,k] -A[l,l])*s*c + A[k,l]*(c**2 - s**2)
 
 	
+	# Update eigenvectors
 
-	r_ik = R[i,k]
-	r_il = R[i,l]
+	R_new = R.copy()
 
-	R[i,k] = c*r_ik - s*r_il
-	R[i,l] = c*r_il + s*r_ik
+	r_ik = R_new[i,k]
+	r_il = R_new[i,l]
+
+	R_new[i,k] = c*r_ik - s*r_il
+	R_new[i,l] = c*r_il + s*r_ik
+
+	return B, R_new
 
 
-	return B, R
 
 
-def Rotate(A, R, N, epsilon, mesh_min, mesh_max, part):
+def Rotate(N, epsilon, mesh_min, mesh_max, part):
 
 	# Start values
 	A, R = create_matrix(N, mesh_min, mesh_max, part)
@@ -145,45 +175,107 @@ def Rotate(A, R, N, epsilon, mesh_min, mesh_max, part):
 
 		# Find norm of off-diagonal elements
 		B_temp = B.copy(); np.fill_diagonal(B_temp, 0)
-		norm = np.linalg.norm(B_temp)	
+		norm = np.linalg.norm(B_temp)
 	
 		A = B
-
+		R = R_new		
+		
 		counter += 1
 	
-	A_final = A
-	R_final = R_new
+	A_rotated = A
+	R_rotated = R		
+
+	#print "A is diagonal after %g rotations" % counter
+
+	return A_rotated, R_rotated, counter
 
 
-	return A_final, R_final
 
 
+def test_eigenvalues_schroedinger():
+	os.system('clear')
+	N = 3
+	mesh_min = 0.0
+	mesh_max = 3.3
+	epsilon = 1e-8
+	h = (mesh_max - mesh_min)/float(N)
+	h2 = h*h
 
-	
+	eigvals_analytical = np.array([3, 7, 11])
+
+	# Perform rotation
+	A_rotated, R_rotated, counter = Rotate(N, epsilon, mesh_min, mesh_max, part='d')
+
+
+	eigvals = np.sort(np.diag(A_rotated))
+
+	print eigvals
+	print eigvals_analytical
+	tol = 1e-10
+
+	diff = np.abs(eigvals - eigvals_analytical).max()
+
+	print diff
+
+	assert diff < tol
 
 
 def test_eigenvalues():
+	os.system('clear')
+	#print "Testing eigenvalues of rotated matrix"
 
-	N = 5
+	N = 3
 	mesh_min = 0.0
-	mesh_max = 2.0
+	mesh_max = 100.0
+	epsilon = 1e-8
 	h = (mesh_max - mesh_min)/float(N)
 	h2 = h*h
 
 	d = 2./h2
 	a = -1./h2
 
-	A = create_matrix(N, mesh_min, mesh_max, part='b')	
-	
-	
-	Eigvals_analytical = np.array([d + 2*a*np.cos((j*np.pi)/(N+1.0)) for j in range(N)])
+	# Perform rotation
+	A_rotated, R_rotated, counter = Rotate(N, epsilon, mesh_min, mesh_max, part='b')
 
-	tol = 1e-10
-	diff = np.abs(Eigvals_analytical - np.linalg.eigvals(A)).max()
 
+	# Eigenvalues of original matrix A
+	Eigvals = -np.sort(-(np.array([d + 2*a*np.cos((j*np.pi)/(N+1.0)) for j in range(1, N+1)])))
+
+
+	# Eigenvalues of rotated matrix
+	eigvals = -np.sort(-np.diag(A_rotated))
+
+	print Eigvals
+	print eigvals
+	
+	tol = 1e-6		# Tolerance
+
+		
+	diff = np.abs(eigvals - Eigvals).max()
+	
+	print "Difference:", diff
 	assert diff < tol
+	
 
 
+
+
+
+
+if __name__=='__main__':
+
+	#test_eigenvalues()
+	test_eigenvalues_schroedinger()
+
+	
+	wr = 0.5
+
+	#Ar1, Rr1,counter1 = Rotate(N=90, epsilon=1e-10, mesh_min=0.0, mesh_max=10.0, part='d')
+	#Ar2, Rr2, counter2 = Rotate(N=500, epsilon=1e-10, mesh_min=0.0, mesh_max=10.0, part='e')
+
+
+
+	
 
 
 
